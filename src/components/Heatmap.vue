@@ -1,81 +1,67 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, watch, ref } from 'vue'
 import * as d3 from 'd3'
+import { coordToKey, keyToCoord, arrayToSet, setToArray, areMasksEqual } from '../lib/mask'
 
 interface State {
   transform: d3.ZoomTransform
   mode: string
+  tool: string
 }
 
 interface Props {
   data: (number | null)[][]
   state: State
-  mask?: boolean[][]
+  mask?: Set<string>
 }
 
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
   'update:transform': [transform: d3.ZoomTransform]
-  'update:mask': [coordinates: { x: number; y: number }]
+  'update:mask': [maskUpdate: { values: { x: number; y: number }[], add: boolean }]
 }>()
 
 const containerRef = ref<HTMLDivElement>()
 
-// Local mask state for efficient updates
-const localMask = ref<boolean[][]>([])
+// Local mask state using Set for efficient operations
+const localMask = ref<Set<string>>(new Set())
 
-// Helper function to compare two masks
-const areMasksEqual = (mask1: boolean[][] | undefined, mask2: boolean[][]): boolean => {
-  if (!mask1 || mask1.length !== mask2.length) return false
+function updateMask(newMaskSet: Set<string>) {
+  if (newMaskSet.size > 0) {
+    const cellsToUpdate: Array<{ x: number; y: number }> = []
 
-  for (let i = 0; i < mask1.length; i++) {
-    if (!mask1[i] || mask1[i].length !== mask2[i].length) return false
-    for (let j = 0; j < mask1[i].length; j++) {
-      if (mask1[i][j] !== mask2[i][j]) return false
-    }
-  }
-  return true
-}
-
-function updateMask(newMask: boolean[][]) {
-  if (newMask.length > 0) {
-    const cellsToUpdate: Array<{ i: number; j: number }> = []
-
-    for (let i = 0; i < newMask.length; i++) {
-      for (let j = 0; j < newMask[i].length; j++) {
-        const shouldBeMasked = newMask[i][j]
-        const isCurrentlyMasked = localMask.value[i] && localMask.value[i][j]
-
-        if (shouldBeMasked && !isCurrentlyMasked) {
-          cellsToUpdate.push({ i, j })
-        }
+    // Find cells that are in newMask but not in localMask
+    for (const key of newMaskSet) {
+      if (!localMask.value.has(key)) {
+        const [i, j] = keyToCoord(key)
+        cellsToUpdate.push({ x: j, y: i })
+        localMask.value.add(key)
       }
     }
 
-    // Update local mask and colors for changed cells
-    cellsToUpdate.forEach(({ i, j }) => {
-      localMask.value[i][j] = true
-      updateCellColor(i, j)
-    })
+    // Update colors for all changed cells in one batch
+    if (cellsToUpdate.length > 10) {
+      updateColors()
+    } else if (cellsToUpdate.length > 0) {
+      updateCellColors(cellsToUpdate)
+    }
   }
 }
 
 // Initialize local mask when props.mask changes
 watch(() => props.mask, (newMask) => {
+  if (!newMask || newMask.size === 0) {
+    localMask.value.clear()
+    return
+  }
+
   if (areMasksEqual(newMask, localMask.value)) {
     return
   }
 
-  // Initialize local mask if needed
-  if (localMask.value.length === 0 && newMask && newMask.length > 0) {
-    localMask.value = Array(newMask.length).fill(null).map(() => Array(newMask[0].length).fill(false))
-  }
-
   // Find cells that differ and update them incrementally
-  if (newMask) {
-    updateMask(newMask)
-  }
+  updateMask(newMask)
 
 }, { immediate: true, deep: true })
 
@@ -97,7 +83,7 @@ const colorScale = computed(() => {
 // Function to get the color of a square
 const getSquareColor = (value: number | null, i: number, j: number): string => {
   // Check if this cell is masked using local state
-  if (localMask.value[i] && localMask.value[i][j]) {
+  if (localMask.value.has(coordToKey(i, j))) {
     return 'black'
   }
 
@@ -137,6 +123,12 @@ let isMousePressed = false
 let isDragging = false
 let lastMaskedCell: { x: number; y: number } | null = null
 
+// State for select mode
+let isSelecting = false
+let selectionStart: { x: number; y: number } | null = null
+let selectionEnd: { x: number; y: number } | null = null
+let selectionRect: any = null
+
 const updateTransform = (transform: d3.ZoomTransform) => {
   if (g && svg && zoom) {
     // Use d3.zoomTransform to properly process the transform through D3's zoom system
@@ -157,13 +149,21 @@ const updateCellColor = (i: number, j: number) => {
   }
 }
 
-// Batch update colors for multiple cells
-const updateCellsColors = (cells: Array<{ i: number; j: number }>) => {
-  if (g) {
-    cells.forEach(({ i, j }) => {
-      updateCellColor(i, j)
-    })
-  }
+// Batch update colors for multiple cells - optimized version
+const updateCellColors = (cells: Array<{ x: number; y: number }>) => {
+  if (!g) return
+
+  // Get all rectangles at once
+  const rects = g.selectAll("rect.heatmap-cell")
+
+  cells.forEach(({ x, y }) => {
+    const rect = rects.filter((d: any) => d.i === y && d.j === x)
+
+    if (!rect.empty()) {
+      const value = props.data[y]?.[x]
+      rect.attr("fill", getSquareColor(value, y, x))
+    }
+  })
 }
 
 const updateColors = () => {
@@ -206,27 +206,156 @@ const getCellFromMousePosition = (event: MouseEvent): { x: number; y: number } |
   return null
 }
 
-// Handle mask update with local state management
-const handleMaskUpdate = (coordinates: { x: number; y: number }) => {
-  const { x, y } = coordinates
-
+// Add multiple coordinates to mask and return array of newly added coordinates
+const addMaskCoordinates = (coordinates: { x: number; y: number }[]): { x: number; y: number }[] => {
   // Initialize local mask if needed
-  if (localMask.value.length === 0) {
-    localMask.value = Array(rows.value).fill(null).map(() => Array(cols.value).fill(false))
+  if (localMask.value.size === 0) {
+    localMask.value = new Set()
   }
 
-  // Check if this cell is already masked to avoid unnecessary updates
-  if (localMask.value[y] && localMask.value[y][x] !== undefined && !localMask.value[y][x]) {
-    // Update local mask
-    localMask.value[y][x] = true
+  const addedCoordinates: { x: number; y: number }[] = []
 
-    // Update only this cell's color
-    updateCellColor(y, x)
+  coordinates.forEach(({ x, y }) => {
+    // Check if this cell is already masked to avoid unnecessary updates
+    if (!localMask.value.has(coordToKey(y, x))) {
+      // Update local mask
+      localMask.value.add(coordToKey(y, x))
+      addedCoordinates.push({ x, y })
+    }
+  })
 
+  // Note if batch is big, it's faster to juste update all colors rather than filter
+  if (addedCoordinates.length > 10) {
+    updateColors()
+  } else if (addedCoordinates.length > 0) {
+    updateCellColors(addedCoordinates)
+  }
+
+  return addedCoordinates
+}
+
+// Handle single mask update with local state management
+const handleMaskUpdate = (coordinates: { x: number; y: number }) => {
+  const addedCoordinates = addMaskCoordinates([coordinates])
+  if (addedCoordinates.length > 0) {
     // Emit the update to parent
-    emit('update:mask', coordinates)
+    emit('update:mask', { values: addedCoordinates, add: true })
   }
 }
+
+// Handle multiple mask updates efficiently
+const handleMaskUpdates = (coordinates: { x: number; y: number }[]) => {
+  const addedCoordinates = addMaskCoordinates(coordinates)
+
+  // Emit all updates at once if any were added
+  if (addedCoordinates.length > 0) {
+    emit('update:mask', { values: addedCoordinates, add: true })
+  }
+}
+
+// Handle selection rectangle creation
+const createSelectionRect = () => {
+  if (!svg) return
+
+  // Remove existing selection rectangle
+  if (selectionRect) {
+    selectionRect.remove()
+  }
+
+  // Create new selection rectangle
+  selectionRect = svg.append("rect")
+    .attr("class", "selection-rect")
+    .attr("fill", "rgba(59, 130, 246, 0.2)")
+    .attr("stroke", "#3b82f6")
+    .attr("stroke-width", 1)
+    .attr("stroke-dasharray", "5,5")
+    .style("pointer-events", "none")
+}
+
+// Update selection rectangle position and size
+const updateSelectionRect = () => {
+  if (!selectionRect || !selectionStart || !selectionEnd || !containerRef.value) return
+
+  const rect = containerRef.value.getBoundingClientRect()
+  const transform = d3.zoomTransform(svg.node())
+
+  // Calculate centering offset
+  const totalDataWidth = cols.value * squareSize.value
+  const totalDataHeight = rows.value * squareSize.value
+  const offsetX = (rect.width - totalDataWidth) / 2
+  const offsetY = (rect.height - totalDataHeight) / 2
+
+  // Convert cell coordinates to screen coordinates
+  const startX = offsetX + selectionStart.x * squareSize.value
+  const startY = offsetY + selectionStart.y * squareSize.value
+  const endX = offsetX + selectionEnd.x * squareSize.value
+  const endY = offsetY + selectionEnd.y * squareSize.value
+
+  // Apply transform
+  const transformedStartX = startX * transform.k + transform.x
+  const transformedStartY = startY * transform.k + transform.y
+  const transformedEndX = endX * transform.k + transform.x
+  const transformedEndY = endY * transform.k + transform.y
+
+  // Calculate rectangle dimensions
+  const rectX = Math.min(transformedStartX, transformedEndX)
+  const rectY = Math.min(transformedStartY, transformedEndY)
+  const rectWidth = Math.abs(transformedEndX - transformedStartX)
+  const rectHeight = Math.abs(transformedEndY - transformedStartY)
+
+  selectionRect
+    .attr("x", rectX)
+    .attr("y", rectY)
+    .attr("width", rectWidth)
+    .attr("height", rectHeight)
+}
+
+// Handle selection completion
+const handleSelectionComplete = () => {
+  if (!selectionStart || !selectionEnd) return
+
+  // Calculate selection bounds
+  const minX = Math.min(selectionStart.x, selectionEnd.x)
+  const maxX = Math.max(selectionStart.x, selectionEnd.x)
+  const minY = Math.min(selectionStart.y, selectionEnd.y)
+  const maxY = Math.max(selectionStart.y, selectionEnd.y)
+
+  // Collect all cells in the selection
+  const selectedCells: { x: number; y: number }[] = []
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (x >= 0 && x < cols.value && y >= 0 && y < rows.value) {
+        selectedCells.push({ x, y })
+      }
+    }
+  }
+
+  // Add all cells in the selection to the mask in one batch
+  handleMaskUpdates(selectedCells)
+  // alert('done')
+
+  // Clean up selection
+  if (selectionRect) {
+    selectionRect.remove()
+    selectionRect = null
+  }
+  selectionStart = null
+  selectionEnd = null
+  isSelecting = false
+}
+
+const cursorStyle = computed(() => {
+  if (props.state.tool === 'hand') {
+    return 'grab'
+  }
+  if (props.state.tool === 'select') {
+    return 'crosshair'
+  }
+  if (props.state.mode === 'mask') {
+    return 'pointer'
+  }
+  return 'default'
+})
 
 const createHeatmap = () => {
   if (!containerRef.value || !props.data.length) return
@@ -272,6 +401,18 @@ const createHeatmap = () => {
       isMousePressed = true
       isDragging = false
       lastMaskedCell = null
+
+      // Start selection if in select mode
+      if (props.state.tool === 'select' && props.state.mode === 'mask') {
+        const cell = getCellFromMousePosition(event)
+        if (cell) {
+          isSelecting = true
+          selectionStart = cell
+          selectionEnd = cell
+          createSelectionRect()
+          updateSelectionRect()
+        }
+      }
     }
   }
 
@@ -280,11 +421,32 @@ const createHeatmap = () => {
       isMousePressed = false
       isDragging = false
       lastMaskedCell = null
+
+      // Complete selection if in select mode
+      if (isSelecting && props.state.tool === 'select') {
+        const cell = getCellFromMousePosition(event)
+        if (cell) {
+          selectionEnd = cell
+          updateSelectionRect()
+        }
+        handleSelectionComplete()
+      }
     }
   }
 
   const handleMouseMove = (event: MouseEvent) => {
-    if (isShiftPressed && isMousePressed && props.state.mode === 'mask' && !isCtrlPressed) {
+    // Handle selection rectangle update
+    if (isSelecting && props.state.tool === 'select') {
+      const cell = getCellFromMousePosition(event)
+      if (cell) {
+        selectionEnd = cell
+        updateSelectionRect()
+      }
+      return
+    }
+
+    // Handle shift + drag for masking
+    if (isShiftPressed && isMousePressed && props.state.mode === 'mask' && !isCtrlPressed && props.state.tool !== 'hand') {
       const cell = getCellFromMousePosition(event)
       if (cell && (!lastMaskedCell || cell.x !== lastMaskedCell.x || cell.y !== lastMaskedCell.y)) {
         handleMaskUpdate(cell)
@@ -308,6 +470,12 @@ const createHeatmap = () => {
     document.removeEventListener('mousedown', handleMouseDown)
     document.removeEventListener('mouseup', handleMouseUp)
     document.removeEventListener('mousemove', handleMouseMove)
+
+    // Clean up selection rectangle
+    if (selectionRect) {
+      selectionRect.remove()
+      selectionRect = null
+    }
   }
 
   // Calculate centering offset to center the heatmap in the container
@@ -339,23 +507,22 @@ const createHeatmap = () => {
     .attr("stroke", "white")
     .attr("stroke-width", 0.1)
     .attr("title", (d: any) => `Row ${d.i}, Col ${d.j}: ${d.value === null ? 'null' : d.value}`)
-    .style("cursor", props.state.mode === 'mask' ? "pointer" : "default")
     .on("mouseenter", function (this: SVGElement, event: any, d: any) {
-      if (props.state.mode === 'mask') {
+      if (props.state.mode === 'mask' && props.state.tool !== 'hand') {
         d3.select(this)
           .attr("stroke", "#3b82f6")
           .attr("stroke-width", 1)
       }
     })
     .on("mouseleave", function (this: SVGElement, event: any, d: any) {
-      if (props.state.mode === 'mask') {
+      if (props.state.mode === 'mask' && props.state.tool !== 'hand') {
         d3.select(this)
           .attr("stroke", "white")
           .attr("stroke-width", 0.1)
       }
     })
     .on("mousedown", function (event: any, d: any) {
-      if (props.state.mode === 'mask' && !isCtrlPressed) {
+      if (props.state.mode === 'mask' && !isCtrlPressed && props.state.tool === 'point') {
         handleMaskUpdate({ x: d.j, y: d.i })
       }
     })
@@ -370,6 +537,11 @@ const createHeatmap = () => {
       emit('update:transform', event.transform)
     })
     .filter((event) => {
+      // In hand mode, allow all interactions without Ctrl key
+      if (props.state.tool === 'hand') {
+        return true
+      }
+      // In other modes, require Ctrl/Cmd key for zoom/pan
       return event.ctrlKey || event.metaKey
     })
 
@@ -431,7 +603,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-full h-full" ref="containerRef">
+  <div class="w-full h-full" ref="containerRef" :style="{ cursor: cursorStyle }">
 
 
   </div>

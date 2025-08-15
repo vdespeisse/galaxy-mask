@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { csvParseRows } from 'd3-dsv'
 import * as d3 from 'd3'
 import Heatmap from './components/Heatmap.vue'
 import ZoomControl from './components/ZoomControl.vue'
 import HotkeyHelp from './components/HotkeyHelp.vue'
+import SvgIcon from './components/SvgIcon.vue'
+import ToolButton from './components/ToolButton.vue'
+import { coordToKey, arrayToSet, setToArray } from './lib/mask'
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const maskFileInputRef = ref<HTMLInputElement | null>(null)
@@ -13,12 +16,13 @@ const galaxyRight = ref<(number | null)[][]>([])
 const galaxyLeftFilename = ref<string>('')
 const galaxyRightFilename = ref<string>('')
 const error = ref<string>('')
-const mask = ref<boolean[][]>([])
+const mask = ref<Set<string>>(new Set())
 
 // Create reactive state object
 const state = reactive({
   transform: d3.zoomIdentity,
-  mode: 'view' as string
+  mode: 'mask' as string,
+  tool: 'hand' as string
 })
 
 // Computed zoom percentage from state.transform
@@ -111,13 +115,23 @@ const handleFileUpload = async (event: Event) => {
 }
 
 const handleSave = () => {
-  if (mask.value.length === 0) {
+  if (mask.value.size === 0) {
     error.value = 'No mask data to save.'
     return
   }
 
+  // Get dimensions from the data
+  const maxRows = Math.max(galaxyLeft.value.length, galaxyRight.value.length)
+  const maxCols = Math.max(
+    galaxyLeft.value[0]?.length || 0,
+    galaxyRight.value[0]?.length || 0
+  )
+
+  // Convert Set to array for saving
+  const maskArray = setToArray(mask.value, maxRows, maxCols)
+
   // Convert boolean mask to CSV string with 0s and 1s, no headers
-  const csvContent = mask.value
+  const csvContent = maskArray
     .map(row => row.map(cell => cell ? '1' : '0').join(','))
     .join('\n')
 
@@ -170,7 +184,8 @@ const handleMaskFileUpload = async (event: Event) => {
   try {
     error.value = ''
     const maskData = await parseMaskCSVFile(files[0])
-    mask.value = maskData
+    // Convert array to Set for internal storage
+    mask.value = arrayToSet(maskData)
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to process mask file.'
   }
@@ -194,24 +209,35 @@ const updateTransform = (newTransform: d3.ZoomTransform) => {
 }
 
 
-const handleMaskUpdate = (coordinates: { x: number; y: number }) => {
-  const { x, y } = coordinates
-
-  // Initialize mask if it doesn't exist
-  if (mask.value.length === 0) {
-    const maxRows = Math.max(galaxyLeft.value.length, galaxyRight.value.length)
-    const maxCols = Math.max(
-      galaxyLeft.value[0]?.length || 0,
-      galaxyRight.value[0]?.length || 0
-    )
-    mask.value = Array(maxRows).fill(null).map(() => Array(maxCols).fill(false))
-  }
-
-  // Set the mask at the given coordinates (no need to toggle, just set to true)
-  if (mask.value[y] && mask.value[y][x] !== undefined) {
-    mask.value[y][x] = true
+const handleMaskUpdate = (maskUpdate: { values: { x: number; y: number }[], add: boolean }) => {
+  if (maskUpdate.add) {
+    // Add all coordinates to the mask Set
+    maskUpdate.values.forEach(({ x, y }) => {
+      mask.value.add(coordToKey(y, x))
+    })
   }
 }
+
+function getDigit(e: KeyboardEvent): number | null {
+  if (e.code.startsWith('Digit')) return Number(e.code.slice(5));     // top row
+  if (e.code.startsWith('Numpad') && /Numpad[0-9]/.test(e.code)) {
+    return Number(e.code.slice(6)); // numpad 0–9
+  }
+  return null;
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', (e) => {
+    const digit = getDigit(e)
+    const tools = ['hand', 'point', 'select', 'shape']
+    if (digit) {
+      const tool = tools[digit - 1]
+      if (tool) {
+        state.tool = tool
+      }
+    }
+  })
+})
 </script>
 
 <template>
@@ -222,6 +248,7 @@ const handleMaskUpdate = (coordinates: { x: number; y: number }) => {
         <button
           class="px-4 py-2 bg-white text-slate-700 border border-slate-400 rounded-md text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-emerald-300 hover:border-emerald-300 hover:text-emerald-900 active:bg-emerald-300 active:border-emerald-300 active:text-emerald-900"
           @click="openFilePicker">
+          <SvgIcon name="select" size="16" class="mr-1" />
           Upload Data (1-2 files)
         </button>
         <button
@@ -236,20 +263,24 @@ const handleMaskUpdate = (coordinates: { x: number; y: number }) => {
         </button>
       </div>
 
-      <!-- Mode Toggle Buttons -->
-      <div class="flex gap-2 flex-1 items-center justify-center">
-        <button class="px-3 py-1 text-sm font-medium rounded border border-slate-400 transition-all duration-200"
-          :class="state.mode === 'view'
-            ? 'bg-emerald-300 border-emerald-300'
-            : 'bg-white text-slate-700 hover:bg-slate-100'" @click="state.mode = 'view'">
-          View
-        </button>
-        <button class="px-3 py-1 text-sm font-medium rounded border border-slate-400 transition-all duration-200"
-          :class="state.mode === 'mask'
-            ? 'bg-emerald-300 border-emerald-300'
-            : 'bg-white text-slate-700 hover:bg-slate-100'" @click="state.mode = 'mask'">
-          Mask
-        </button>
+      <!-- Mode and Tools -->
+      <div class="flex gap-4 flex-1 items-center justify-center">
+        <div class="flex gap-2 items-center">
+          <div>Mode:</div>
+          <select v-model="state.mode"
+            class="px-3 py-1 text-sm font-medium rounded border border-slate-400 bg-white text-slate-700 cursor-pointer transition-all duration-200 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-300">
+            <option value="mask">Mask</option>
+            <option value="erase">Erase</option>
+            <option value="view">View</option>
+          </select>
+        </div>
+
+        <div class="bg-white rounded-lg p-1 flex gap-1 shadow-sm">
+          <ToolButton v-model="state.tool" value="hand" icon="hand" />
+          <ToolButton v-model="state.tool" value="point" icon="point" />
+          <ToolButton v-model="state.tool" value="select" icon="select" />
+          <ToolButton v-model="state.tool" value="shape" icon="shape" />
+        </div>
       </div>
 
       <!-- Zoom Control -->
