@@ -43,14 +43,61 @@ const closePopup = () => {
           </div>
         </div>
 
+        <!-- Mode switching shortcuts -->
+        <div class="pt-2 border-t border-slate-200">
+          <h4 class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+            Mode switching
+          </h4>
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-slate-600">Switch tool:</span>
+              <div class="flex items-center gap-1">
+                <Hotkey :keys="['1']" />
+                <Hotkey :keys="['2']" />
+                <Hotkey :keys="['3']" />
+                <Hotkey :keys="['4']" />
+              </div>
+            </div>
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-slate-600">Mask mode:</span>
+              <Hotkey :keys="['a']" />
+            </div>
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-slate-600">Erase mode:</span>
+              <Hotkey :keys="['z']" />
+            </div>
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-slate-600">View mode:</span>
+              <Hotkey :keys="['e']" />
+            </div>
+          </div>
+        </div>
+
         <!-- Mask mode shortcuts -->
         <div class="pt-2 border-t border-slate-200">
           <h4 class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
-            In mask mode
+            In point mode
           </h4>
           <div class="flex items-center justify-between text-sm">
             <span class="text-slate-600">Multi point:</span>
             <Hotkey :keys="['shift', 'drag']" />
+          </div>
+        </div>
+
+        <!-- Shape mode shortcuts -->
+        <div class="pt-2 border-t border-slate-200">
+          <h4 class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+            In shape mode
+          </h4>
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-slate-600">Validate selection:</span>
+              <Hotkey :keys="['enter']" />
+            </div>
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-slate-600">Cancel selection:</span>
+              <Hotkey :keys="['esc']" />
+            </div>
           </div>
         </div>
       </div>

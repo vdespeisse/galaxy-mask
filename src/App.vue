@@ -215,6 +215,11 @@ const handleMaskUpdate = (maskUpdate: { values: { x: number; y: number }[], add:
     maskUpdate.values.forEach(({ x, y }) => {
       mask.value.add(coordToKey(y, x))
     })
+  } else {
+    // Remove all coordinates from the mask Set
+    maskUpdate.values.forEach(({ x, y }) => {
+      mask.value.delete(coordToKey(y, x))
+    })
   }
 }
 
@@ -236,6 +241,15 @@ onMounted(() => {
         state.tool = tool
       }
     }
+
+    // Mode switching hotkeys
+    if (e.key === 'a' || e.key === 'A') {
+      state.mode = 'mask'
+    } else if (e.key === 'z' || e.key === 'Z') {
+      state.mode = 'erase'
+    } else if (e.key === 'e' || e.key === 'E') {
+      state.mode = 'view'
+    }
   })
 })
 </script>
@@ -248,7 +262,6 @@ onMounted(() => {
         <button
           class="px-4 py-2 bg-white text-slate-700 border border-slate-400 rounded-md text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-emerald-300 hover:border-emerald-300 hover:text-emerald-900 active:bg-emerald-300 active:border-emerald-300 active:text-emerald-900"
           @click="openFilePicker">
-          <SvgIcon name="select" size="16" class="mr-1" />
           Upload Data (1-2 files)
         </button>
         <button
@@ -276,10 +289,10 @@ onMounted(() => {
         </div>
 
         <div class="bg-white rounded-lg p-1 flex gap-1 shadow-sm">
-          <ToolButton v-model="state.tool" value="hand" icon="hand" />
-          <ToolButton v-model="state.tool" value="point" icon="point" />
-          <ToolButton v-model="state.tool" value="select" icon="select" />
-          <ToolButton v-model="state.tool" value="shape" icon="shape" />
+          <ToolButton v-model="state.tool" value="hand" icon="hand" :number="1" />
+          <ToolButton v-model="state.tool" value="point" icon="point" :number="2" />
+          <ToolButton v-model="state.tool" value="select" icon="select" :number="3" />
+          <ToolButton v-model="state.tool" value="shape" icon="shape" :number="4" />
         </div>
       </div>
 

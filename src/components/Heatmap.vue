@@ -30,13 +30,18 @@ const localMask = ref<Set<string>>(new Set())
 function updateMask(newMaskSet: Set<string>) {
   if (newMaskSet.size > 0) {
     const cellsToUpdate: Array<{ x: number; y: number }> = []
-
-    // Find cells that are in newMask but not in localMask
     for (const key of newMaskSet) {
       if (!localMask.value.has(key)) {
         const [i, j] = keyToCoord(key)
         cellsToUpdate.push({ x: j, y: i })
         localMask.value.add(key)
+      }
+    }
+    for (const key of localMask.value) {
+      if (!newMaskSet.has(key)) {
+        const [i, j] = keyToCoord(key)
+        cellsToUpdate.push({ x: j, y: i })
+        localMask.value.delete(key)
       }
     }
 
@@ -61,6 +66,7 @@ watch(() => props.mask, (newMask) => {
   }
 
   // Find cells that differ and update them incrementally
+  // For now, we assume additions (the parent component should handle the add/remove logic)
   updateMask(newMask)
 
 }, { immediate: true, deep: true })
@@ -239,22 +245,62 @@ const addMaskCoordinates = (coordinates: { x: number; y: number }[]): { x: numbe
   return addedCoordinates
 }
 
+// Remove multiple coordinates from mask and return array of newly removed coordinates
+const removeMaskCoordinates = (coordinates: { x: number; y: number }[]): { x: number; y: number }[] => {
+  const removedCoordinates: { x: number; y: number }[] = []
+
+  coordinates.forEach(({ x, y }) => {
+    // Check if this cell is masked to avoid unnecessary updates
+    if (localMask.value.has(coordToKey(y, x))) {
+      // Update local mask
+      localMask.value.delete(coordToKey(y, x))
+      removedCoordinates.push({ x, y })
+    }
+  })
+
+  // Note if batch is big, it's faster to just update all colors rather than filter
+  if (removedCoordinates.length > 10) {
+    updateColors()
+  } else if (removedCoordinates.length > 0) {
+    updateCellColors(removedCoordinates)
+  }
+
+  return removedCoordinates
+}
+
 // Handle single mask update with local state management
 const handleMaskUpdate = (coordinates: { x: number; y: number }) => {
-  const addedCoordinates = addMaskCoordinates([coordinates])
-  if (addedCoordinates.length > 0) {
-    // Emit the update to parent
-    emit('update:mask', { values: addedCoordinates, add: true })
+  if (props.state.mode === 'mask') {
+    const addedCoordinates = addMaskCoordinates([coordinates])
+    if (addedCoordinates.length > 0) {
+      // Emit the update to parent
+      emit('update:mask', { values: addedCoordinates, add: true })
+    }
+  } else if (props.state.mode === 'erase') {
+    const removedCoordinates = removeMaskCoordinates([coordinates])
+    if (removedCoordinates.length > 0) {
+      // Emit the update to parent
+      emit('update:mask', { values: removedCoordinates, add: false })
+    }
   }
 }
 
 // Handle multiple mask updates efficiently
 const handleMaskUpdates = (coordinates: { x: number; y: number }[]) => {
-  const addedCoordinates = addMaskCoordinates(coordinates)
+  if (props.state.mode === 'mask') {
+    const addedCoordinates = addMaskCoordinates(coordinates)
 
-  // Emit all updates at once if any were added
-  if (addedCoordinates.length > 0) {
-    emit('update:mask', { values: addedCoordinates, add: true })
+    // Emit all updates at once if any were added
+    if (addedCoordinates.length > 0) {
+      emit('update:mask', { values: addedCoordinates, add: true })
+    }
+  } else if (props.state.mode === 'erase') {
+    const removedCoordinates = removeMaskCoordinates(coordinates)
+
+    // Emit all updates at once if any were removed
+    if (removedCoordinates.length > 0) {
+      emit('update:mask', { values: removedCoordinates, add: false })
+    }
   }
 }
 
@@ -585,7 +631,7 @@ const cursorStyle = computed(() => {
   if (props.state.tool === 'shape') {
     return 'crosshair'
   }
-  if (props.state.mode === 'mask') {
+  if (props.state.mode === 'mask' || props.state.mode === 'erase') {
     return 'pointer'
   }
   return 'default'
@@ -593,7 +639,7 @@ const cursorStyle = computed(() => {
 
 // Computed property for shape tool status
 const shapeStatus = computed(() => {
-  if (props.state.tool === 'shape' && props.state.mode === 'mask') {
+  if (props.state.tool === 'shape' && (props.state.mode === 'mask' || props.state.mode === 'erase')) {
     if (shapeNodes.length === 0) {
       return 'Click to add shape nodes'
     } else if (shapeNodes.length < 3) {
@@ -633,7 +679,7 @@ const createHeatmap = () => {
     }
 
     // Handle shape tool keyboard events
-    if (props.state.tool === 'shape' && props.state.mode === 'mask') {
+    if (props.state.tool === 'shape' && (props.state.mode === 'mask' || props.state.mode === 'erase')) {
       if (event.key === 'Escape') {
         clearShape()
       } else if (event.key === 'Enter') {
@@ -660,7 +706,7 @@ const createHeatmap = () => {
       lastMaskedCell = null
 
       // Start selection if in select mode
-      if (props.state.tool === 'select' && props.state.mode === 'mask') {
+      if (props.state.tool === 'select' && (props.state.mode === 'mask' || props.state.mode === 'erase')) {
         const cell = getCellFromMousePosition(event)
         if (cell) {
           isSelecting = true
@@ -706,8 +752,8 @@ const createHeatmap = () => {
       return
     }
 
-    // Handle shift + drag for masking
-    if (isShiftPressed && isMousePressed && props.state.mode === 'mask' && !isCtrlPressed && props.state.tool !== 'hand') {
+    // Handle shift + drag for masking/erasing
+    if (isShiftPressed && isMousePressed && (props.state.mode === 'mask' || props.state.mode === 'erase') && !isCtrlPressed && props.state.tool !== 'hand') {
       const cell = getCellFromMousePosition(event)
       if (cell && (!lastMaskedCell || cell.x !== lastMaskedCell.x || cell.y !== lastMaskedCell.y)) {
         handleMaskUpdate(cell)
@@ -772,24 +818,24 @@ const createHeatmap = () => {
     .attr("stroke-width", 0.1)
     .attr("title", (d: any) => `Row ${d.i}, Col ${d.j}: ${d.value === null ? 'null' : d.value}`)
     .on("mouseenter", function (this: SVGElement, event: any, d: any) {
-      if (props.state.mode === 'mask' && props.state.tool !== 'hand') {
+      if ((props.state.mode === 'mask' || props.state.mode === 'erase') && props.state.tool !== 'hand') {
         d3.select(this)
           .attr("stroke", "#3b82f6")
           .attr("stroke-width", 1)
       }
     })
     .on("mouseleave", function (this: SVGElement, event: any, d: any) {
-      if (props.state.mode === 'mask' && props.state.tool !== 'hand') {
+      if ((props.state.mode === 'mask' || props.state.mode === 'erase') && props.state.tool !== 'hand') {
         d3.select(this)
           .attr("stroke", "white")
           .attr("stroke-width", 0.1)
       }
     })
     .on("mousedown", function (event: any, d: any) {
-      if (props.state.mode === 'mask' && !isCtrlPressed && props.state.tool === 'point') {
+      if ((props.state.mode === 'mask' || props.state.mode === 'erase') && !isCtrlPressed && props.state.tool === 'point') {
         handleMaskUpdate({ x: d.j, y: d.i })
       }
-      if (props.state.mode === 'mask' && !isCtrlPressed && props.state.tool === 'shape') {
+      if ((props.state.mode === 'mask' || props.state.mode === 'erase') && !isCtrlPressed && props.state.tool === 'shape') {
         addShapeNode({ x: d.j, y: d.i })
       }
     })
@@ -838,8 +884,9 @@ watch([() => props.data], () => {
 }, { deep: true })
 
 // Watch for tool changes and clear shape if switching away from shape tool
-watch([() => props.state.tool], ([newTool], [oldTool]) => {
-  if (oldTool === 'shape' && newTool !== 'shape') {
+watch([() => props.state.tool, () => props.state.mode], ([newTool, newMode], [oldTool, oldMode]) => {
+  if ((oldTool === 'shape' && newTool !== 'shape') ||
+    (oldTool === 'shape' && oldMode === 'mask' && newMode !== 'mask' && newMode !== 'erase')) {
     clearShape()
   }
 })
