@@ -8,6 +8,8 @@ interface Props {
 
 interface Emits {
   (e: 'update:modelValue', value: Settings): void
+  (e: 'clear:mask'): void
+  (e: 'clear:files'): void
 }
 
 const props = defineProps<Props>()
@@ -19,7 +21,7 @@ const updateSettings = (updates: Partial<Settings>) => {
 </script>
 
 <template>
-  <div class="p-4">
+  <div class="p-4" @click.stop>
     <h3 class="text-lg font-semibold text-slate-800 mb-4">Advanced Options</h3>
 
     <div class="space-y-6">
@@ -120,6 +122,21 @@ const updateSettings = (updates: Partial<Settings>) => {
             </select>
           </div>
         </div>
+      </div>
+    </div>
+    <div>
+      <h4 class="text-sm font-medium text-slate-700 mb-3">Actions</h4>
+
+      <div class="space-y-3">
+        <button @click="$emit('clear:mask')"
+          class="w-full px-4 py-2 bg-red-100 text-red-700 border border-red-300 rounded-md text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-red-200 hover:border-red-400 active:bg-red-300">
+          Clear Mask
+        </button>
+
+        <button @click="$emit('clear:files')"
+          class="w-full px-4 py-2 bg-red-100 text-red-700 border border-red-300 rounded-md text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-red-200 hover:border-red-400 active:bg-red-300">
+          Clear Files
+        </button>
       </div>
     </div>
   </div>

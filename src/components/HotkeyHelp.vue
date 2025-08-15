@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import Hotkey from './Hotkey.vue'
 
 const showPopup = ref(false)
@@ -43,7 +43,7 @@ const closePopup = () => {
           </div>
 
           <div class="flex items-center justify-between text-sm">
-            <span class="text-slate-600">Toggle hide masked:</span>
+            <span class="text-slate-600">Cycle mask display:</span>
             <Hotkey :keys="['h']" />
           </div>
         </div>

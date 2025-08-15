@@ -171,7 +171,6 @@ let zoom: any = null
 let isShiftPressed = false
 let isCtrlPressed = false
 let isMousePressed = false
-let isDragging = false
 let lastMaskedCell: { x: number; y: number } | null = null
 
 // State for select mode
@@ -192,18 +191,18 @@ const updateTransform = (transform: d3.ZoomTransform) => {
   }
 }
 
-// Efficient color update for a single cell
-const updateCellColor = (i: number, j: number) => {
-  if (g) {
-    const rect = g.selectAll("rect.heatmap-cell")
-      .filter((d: any) => d.i === i && d.j === j)
+// // Efficient color update for a single cell
+// const updateCellColor = (i: number, j: number) => {
+//   if (g) {
+//     const rect = g.selectAll("rect.heatmap-cell")
+//       .filter((d: any) => d.i === i && d.j === j)
 
-    if (!rect.empty()) {
-      const value = props.data[i]?.[j]
-      rect.attr("fill", getSquareColor(value, i, j))
-    }
-  }
-}
+//     if (!rect.empty()) {
+//       const value = props.data[i]?.[j]
+//       rect.attr("fill", getSquareColor(value, i, j))
+//     }
+//   }
+// }
 
 // Batch update colors for multiple cells - optimized version
 const updateCellColors = (cells: Array<{ x: number; y: number }>) => {
@@ -736,7 +735,6 @@ const createHeatmap = () => {
   const handleKeyUp = (event: KeyboardEvent) => {
     if (event.key === 'Shift') {
       isShiftPressed = false
-      isDragging = false
       lastMaskedCell = null
     }
     if (event.key === 'Control' || event.key === 'Meta') {
@@ -747,7 +745,6 @@ const createHeatmap = () => {
   const handleMouseDown = (event: MouseEvent) => {
     if (event.button === 0) { // Left mouse button
       isMousePressed = true
-      isDragging = false
       lastMaskedCell = null
 
       // Start selection if in select mode
@@ -771,7 +768,6 @@ const createHeatmap = () => {
   const handleMouseUp = (event: MouseEvent) => {
     if (event.button === 0) { // Left mouse button
       isMousePressed = false
-      isDragging = false
       lastMaskedCell = null
 
       // Complete selection if in select mode
@@ -803,7 +799,6 @@ const createHeatmap = () => {
       if (cell && (!lastMaskedCell || cell.x !== lastMaskedCell.x || cell.y !== lastMaskedCell.y)) {
         handleMaskUpdate(cell)
         lastMaskedCell = cell
-        isDragging = true
       }
     }
   }
@@ -862,21 +857,21 @@ const createHeatmap = () => {
     .attr("stroke", "white")
     .attr("stroke-width", 0.1)
     .attr("title", (d: any) => `Row ${d.i}, Col ${d.j}: ${d.value === null ? 'null' : d.value}`)
-    .on("mouseenter", function (this: SVGElement, event: any, d: any) {
+    .on("mouseenter", function (this: SVGElement) {
       if ((props.state.mode === 'mask' || props.state.mode === 'erase') && props.state.tool !== 'hand') {
         d3.select(this)
           .attr("stroke", "#3b82f6")
           .attr("stroke-width", 1)
       }
     })
-    .on("mouseleave", function (this: SVGElement, event: any, d: any) {
+    .on("mouseleave", function (this: SVGElement) {
       if ((props.state.mode === 'mask' || props.state.mode === 'erase') && props.state.tool !== 'hand') {
         d3.select(this)
           .attr("stroke", "white")
           .attr("stroke-width", 0.1)
       }
     })
-    .on("mousedown", function (event: any, d: any) {
+    .on("mousedown", function (_: any, d: any) {
       if ((props.state.mode === 'mask' || props.state.mode === 'erase') && !isCtrlPressed && props.state.tool === 'point') {
         handleMaskUpdate({ x: d.j, y: d.i })
       }

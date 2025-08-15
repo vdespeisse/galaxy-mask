@@ -237,6 +237,17 @@ const handleMaskUpdate = (maskUpdate: { values: { x: number; y: number }[], add:
   }
 }
 
+const handleClearMask = () => {
+  mask.value.clear()
+}
+
+const handleClearFiles = () => {
+  galaxyLeft.value = []
+  galaxyRight.value = []
+  galaxyLeftFilename.value = ''
+  galaxyRightFilename.value = ''
+}
+
 function getDigit(e: KeyboardEvent): number | null {
   if (e.code.startsWith('Digit')) return Number(e.code.slice(5));     // top row
   if (e.code.startsWith('Numpad') && /Numpad[0-9]/.test(e.code)) {
@@ -337,7 +348,7 @@ onMounted(() => {
       <div v-if="isAdvancedPanelOpen"
         class="advanced-panel fixed top-0 right-0 w-72 h-full bg-slate-50 border-l border-slate-200 shadow-lg z-50"
         :style="{ top: '63px' }">
-        <AdvancedPanel v-model="settings" />
+        <AdvancedPanel v-model="settings" @clear:mask="handleClearMask" @clear:files="handleClearFiles" />
       </div>
     </Transition>
 
