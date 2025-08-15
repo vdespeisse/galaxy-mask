@@ -129,6 +129,11 @@ let selectionStart: { x: number; y: number } | null = null
 let selectionEnd: { x: number; y: number } | null = null
 let selectionRect: any = null
 
+// State for shape mode
+let shapeNodes: { x: number; y: number }[] = []
+let shapeLines: any[] = []
+let shapePolygon: any = null
+
 const updateTransform = (transform: d3.ZoomTransform) => {
   if (g && svg && zoom) {
     // Use d3.zoomTransform to properly process the transform through D3's zoom system
@@ -344,6 +349,232 @@ const handleSelectionComplete = () => {
   isSelecting = false
 }
 
+// Shape tool functions
+const clearShape = () => {
+  // Remove all shape visual elements
+  shapeLines.forEach(line => line.remove())
+  shapeLines = []
+  if (shapePolygon) {
+    shapePolygon.remove()
+    shapePolygon = null
+  }
+  shapeNodes = []
+}
+
+const addShapeNode = (cell: { x: number; y: number }) => {
+  // Check if this is the same as the starting node (first node in the shape)
+  if (shapeNodes.length > 0 && shapeNodes[0].x === cell.x && shapeNodes[0].y === cell.y) {
+    // End shape selection without closing the shape
+    closeShape()
+    return
+  }
+
+  shapeNodes.push(cell)
+  updateShapeVisual()
+}
+
+
+const updateShapeVisual = () => {
+  if (!svg || shapeNodes.length === 0) return
+
+  // Clear existing shape elements
+  shapeLines.forEach(line => line.remove())
+  shapeLines = []
+  if (shapePolygon) {
+    shapePolygon.remove()
+    shapePolygon = null
+  }
+
+  const rect = containerRef.value?.getBoundingClientRect()
+  if (!rect) return
+
+  const transform = d3.zoomTransform(svg.node())
+
+  // Calculate centering offset
+  const totalDataWidth = cols.value * squareSize.value
+  const totalDataHeight = rows.value * squareSize.value
+  const offsetX = (rect.width - totalDataWidth) / 2
+  const offsetY = (rect.height - totalDataHeight) / 2
+
+  // Convert cell coordinates to screen coordinates
+  const screenCoords = shapeNodes.map(node => ({
+    x: offsetX + node.x * squareSize.value + squareSize.value / 2,
+    y: offsetY + node.y * squareSize.value + squareSize.value / 2
+  }))
+
+  // Apply transform
+  const transformedCoords = screenCoords.map(coord => ({
+    x: coord.x * transform.k + transform.x,
+    y: coord.y * transform.k + transform.y
+  }))
+
+  // Draw lines between nodes
+  for (let i = 0; i < shapeNodes.length - 1; i++) {
+    const line = svg.append("line")
+      .attr("x1", transformedCoords[i].x)
+      .attr("y1", transformedCoords[i].y)
+      .attr("x2", transformedCoords[i + 1].x)
+      .attr("y2", transformedCoords[i + 1].y)
+      .attr("stroke", "#3b82f6")
+      .attr("stroke-width", 2)
+      .attr("stroke-dasharray", "5,5")
+      .style("pointer-events", "none")
+
+    shapeLines.push(line)
+  }
+
+  // Draw nodes
+  transformedCoords.forEach(coord => {
+    const circle = svg.append("circle")
+      .attr("cx", coord.x)
+      .attr("cy", coord.y)
+      .attr("r", 4)
+      .attr("fill", "#3b82f6")
+      .attr("stroke", "white")
+      .attr("stroke-width", 1)
+      .style("pointer-events", "none")
+
+    shapeLines.push(circle)
+  })
+}
+
+// Update shape visual when zoom/pan changes
+const updateShapeVisualOnTransform = () => {
+  if (shapeNodes.length > 0) {
+    updateShapeVisual()
+  }
+}
+
+const closeShape = () => {
+  if (shapeNodes.length < 3) {
+    clearShape()
+    return
+  }
+
+  // Create polygon points for point-in-polygon test
+  const polygonPoints = shapeNodes.map(node => [node.x, node.y])
+
+  // Find all cells that intersect with the polygon
+  const cellsInShape: { x: number; y: number }[] = []
+
+  for (let y = 0; y < rows.value; y++) {
+    for (let x = 0; x < cols.value; x++) {
+      if (isCellIntersectingPolygon(x, y, polygonPoints)) {
+        cellsInShape.push({ x, y })
+      }
+    }
+  }
+
+  // Add all cells in the shape to the mask
+  if (cellsInShape.length > 0) {
+    handleMaskUpdates(cellsInShape)
+  }
+
+  // Clear the shape
+  clearShape()
+}
+
+// Test if a cell rectangle intersects with a polygon
+const isCellIntersectingPolygon = (x: number, y: number, polygon: number[][]): boolean => {
+  // Test if the center of the cell is inside the polygon
+  const centerX = x + 0.5
+  const centerY = y + 0.5
+
+  if (isPointInPolygon(centerX, centerY, polygon)) {
+    return true
+  }
+
+  // Also test if any polygon edge intersects with the cell rectangle
+  const cellRect = { x, y, width: 0.5, height: 0.5 }
+  for (let i = 0; i < polygon.length; i++) {
+    const j = (i + 1) % polygon.length
+    const edgeStart = polygon[i]
+    const edgeEnd = polygon[j]
+
+    if (lineIntersectsRect(edgeStart, edgeEnd, cellRect)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+// Test if a line segment intersects with a rectangle
+const lineIntersectsRect = (lineStart: number[], lineEnd: number[], rect: { x: number, y: number, width: number, height: number }): boolean => {
+  const rectLeft = rect.x
+  const rectRight = rect.x + rect.width
+  const rectTop = rect.y
+  const rectBottom = rect.y + rect.height
+
+  // Check if line is completely outside the rectangle
+  if (Math.max(lineStart[0], lineEnd[0]) < rectLeft ||
+    Math.min(lineStart[0], lineEnd[0]) > rectRight ||
+    Math.max(lineStart[1], lineEnd[1]) < rectTop ||
+    Math.min(lineStart[1], lineEnd[1]) > rectBottom) {
+    return false
+  }
+
+  // Check if line crosses any of the rectangle's edges
+  const edges = [
+    [[rectLeft, rectTop], [rectRight, rectTop]],     // top edge
+    [[rectRight, rectTop], [rectRight, rectBottom]], // right edge
+    [[rectRight, rectBottom], [rectLeft, rectBottom]], // bottom edge
+    [[rectLeft, rectBottom], [rectLeft, rectTop]]    // left edge
+  ]
+
+  for (const edge of edges) {
+    if (linesIntersect(lineStart, lineEnd, edge[0], edge[1])) {
+      return true
+    }
+  }
+
+  return false
+}
+
+// Test if two line segments intersect
+const linesIntersect = (a1: number[], a2: number[], b1: number[], b2: number[]): boolean => {
+  const det = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0]
+
+  const delta = [a2[0] - a1[0], a2[1] - a1[1]]
+  const delta1 = [b1[0] - a1[0], b1[1] - a1[1]]
+  const delta2 = [b2[0] - a1[0], b2[1] - a1[1]]
+
+  const d = det(delta, delta1)
+  const d1 = det(delta, delta2)
+
+  if (d * d1 > 0) return false
+
+  const delta3 = [b2[0] - b1[0], b2[1] - b1[1]]
+  const delta4 = [a1[0] - b1[0], a1[1] - b1[1]]
+  const delta5 = [a2[0] - b1[0], a2[1] - b1[1]]
+
+  const d2 = det(delta3, delta4)
+  const d3 = det(delta3, delta5)
+
+  if (d2 * d3 > 0) return false
+
+  return true
+}
+
+// Point-in-polygon test using ray casting algorithm
+const isPointInPolygon = (x: number, y: number, polygon: number[][]): boolean => {
+  let inside = false
+  const n = polygon.length
+
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i][0]
+    const yi = polygon[i][1]
+    const xj = polygon[j][0]
+    const yj = polygon[j][1]
+
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside
+    }
+  }
+
+  return inside
+}
+
 const cursorStyle = computed(() => {
   if (props.state.tool === 'hand') {
     return 'grab'
@@ -351,10 +582,27 @@ const cursorStyle = computed(() => {
   if (props.state.tool === 'select') {
     return 'crosshair'
   }
+  if (props.state.tool === 'shape') {
+    return 'crosshair'
+  }
   if (props.state.mode === 'mask') {
     return 'pointer'
   }
   return 'default'
+})
+
+// Computed property for shape tool status
+const shapeStatus = computed(() => {
+  if (props.state.tool === 'shape' && props.state.mode === 'mask') {
+    if (shapeNodes.length === 0) {
+      return 'Click to add shape nodes'
+    } else if (shapeNodes.length < 3) {
+      return `Shape: ${shapeNodes.length} nodes (need at least 3)`
+    } else {
+      return `Shape: ${shapeNodes.length} nodes - Press Enter to close, Escape to cancel`
+    }
+  }
+  return ''
 })
 
 const createHeatmap = () => {
@@ -382,6 +630,15 @@ const createHeatmap = () => {
     }
     if (event.key === 'Control' || event.key === 'Meta') {
       isCtrlPressed = true
+    }
+
+    // Handle shape tool keyboard events
+    if (props.state.tool === 'shape' && props.state.mode === 'mask') {
+      if (event.key === 'Escape') {
+        clearShape()
+      } else if (event.key === 'Enter') {
+        closeShape()
+      }
     }
   }
 
@@ -413,6 +670,10 @@ const createHeatmap = () => {
           updateSelectionRect()
         }
       }
+
+      // Add shape node if in shape mode
+      // Note: Shape nodes are now handled by rectangle-specific events for better precision
+      // This global handler is kept for other tools but shape tool uses the rectangle events
     }
   }
 
@@ -476,6 +737,9 @@ const createHeatmap = () => {
       selectionRect.remove()
       selectionRect = null
     }
+
+    // Clean up shape elements
+    clearShape()
   }
 
   // Calculate centering offset to center the heatmap in the container
@@ -525,6 +789,9 @@ const createHeatmap = () => {
       if (props.state.mode === 'mask' && !isCtrlPressed && props.state.tool === 'point') {
         handleMaskUpdate({ x: d.j, y: d.i })
       }
+      if (props.state.mode === 'mask' && !isCtrlPressed && props.state.tool === 'shape') {
+        addShapeNode({ x: d.j, y: d.i })
+      }
     })
 
   // Add zoom behavior
@@ -535,6 +802,8 @@ const createHeatmap = () => {
       g.attr("transform", event.transform)
       // Emit the transform for synchronization
       emit('update:transform', event.transform)
+      // Update shape visual if needed
+      updateShapeVisualOnTransform()
     })
     .filter((event) => {
       // In hand mode, allow all interactions without Ctrl key
@@ -568,10 +837,21 @@ watch([() => props.data], () => {
   cleanupFunction = result || null
 }, { deep: true })
 
+// Watch for tool changes and clear shape if switching away from shape tool
+watch([() => props.state.tool], ([newTool], [oldTool]) => {
+  if (oldTool === 'shape' && newTool !== 'shape') {
+    clearShape()
+  }
+})
+
 
 // Watch for transform changes and update
 watch([() => props.state.transform], () => {
   updateTransform(props.state.transform)
+  // Update shape visual when transform changes
+  if (shapeNodes.length > 0) {
+    updateShapeVisual()
+  }
 }, { deep: true })
 
 onMounted(() => {
@@ -603,9 +883,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-full h-full" ref="containerRef" :style="{ cursor: cursorStyle }">
-
-
+  <div class="w-full h-full relative" ref="containerRef" :style="{ cursor: cursorStyle }">
+    <!-- Shape tool status -->
+    <div v-if="shapeStatus"
+      class="absolute top-2 left-2 bg-blue-100 border border-blue-300 rounded px-2 py-1 text-xs text-blue-800 z-10">
+      {{ shapeStatus }}
+    </div>
   </div>
 </template>
 
