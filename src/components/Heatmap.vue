@@ -75,7 +75,7 @@ watch(() => props.mask, (newMask) => {
 }, { immediate: true, deep: true })
 
 // Watch for color scheme changes and update colors
-watch(() => [props.settings.colorScheme, props.settings.interpolationType, props.settings.interpolationRangeAbsolute, props.settings.interpolationRangePercentile], () => {
+watch(() => [props.settings.colorScheme, props.settings.interpolationType, props.settings.interpolationRangeAbsolute, props.settings.interpolationRangePercentile, props.settings.hideMasked], () => {
   updateColors()
 })
 
@@ -125,7 +125,7 @@ const colorScale = computed(() => {
 const getSquareColor = (value: number | null, i: number, j: number): string => {
   // Check if this cell is masked using local state
   if (localMask.value.has(coordToKey(i, j))) {
-    return 'black'
+    return props.settings.hideMasked ? 'white' : 'black'
   }
 
   if (value === null) return 'white'

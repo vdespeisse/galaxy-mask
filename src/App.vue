@@ -25,10 +25,11 @@ const isAdvancedPanelOpen = ref(false)
 
 // Settings state
 const settings = ref<Settings>({
-  colorScheme: "coolwarm",
+  colorScheme: "spectral",
   interpolationType: "percentile",
   interpolationRangeAbsolute: [0, 100],
-  interpolationRangePercentile: [0, 100]
+  interpolationRangePercentile: [0, 100],
+  hideMasked: false
 })
 
 // Create reactive state object
@@ -262,6 +263,8 @@ onMounted(() => {
       state.mode = 'erase'
     } else if (e.key === 'e' || e.key === 'E') {
       state.mode = 'view'
+    } else if (e.key === 'h' || e.key === 'H') {
+      settings.value.hideMasked = !settings.value.hideMasked
     }
   })
 })

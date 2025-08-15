@@ -3,4 +3,5 @@ export interface Settings {
   interpolationType: 'absolute' | 'percentile'
   interpolationRangeAbsolute: [number, number]
   interpolationRangePercentile: [number, number]
+  hideMasked: boolean
 }

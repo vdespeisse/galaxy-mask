@@ -41,6 +41,11 @@ const closePopup = () => {
             <span class="text-slate-600">Pan:</span>
             <Hotkey :keys="['cmd', 'drag']" />
           </div>
+
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-slate-600">Toggle hide masked:</span>
+            <Hotkey :keys="['h']" />
+          </div>
         </div>
 
         <!-- Mode switching shortcuts -->

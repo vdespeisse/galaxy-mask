@@ -71,7 +71,7 @@ export const colorPresets: Record<string, string[]> = {
     '#ffa2a2',
     '#ff8080',
   ],
-  RdBu: [
+  rdbu: [
     '#67001f',
     '#b2182b',
     '#d6604d',
@@ -84,7 +84,7 @@ export const colorPresets: Record<string, string[]> = {
     '#2166ac',
     '#053061',
   ],
-  Spectral: [
+  spectral: [
     '#9e0142',
     '#d53e4f',
     '#f46d43',

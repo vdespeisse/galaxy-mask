@@ -103,6 +103,19 @@ const updateSettings = (updates: Partial<Settings>) => {
           </div>
         </div>
       </div>
+
+      <!-- Mask Display Section -->
+      <div>
+        <h4 class="text-sm font-medium text-slate-700 mb-3">Mask Display</h4>
+
+        <div class="space-y-3">
+          <label class="flex items-center">
+            <input type="checkbox" :checked="modelValue.hideMasked"
+              @change="updateSettings({ hideMasked: ($event.target as HTMLInputElement).checked })" class="mr-2" />
+            <span class="text-sm">Hide masked cells (show as white instead of black)</span>
+          </label>
+        </div>
+      </div>
     </div>
   </div>
 </template>
