@@ -29,7 +29,7 @@ const settings = ref<Settings>({
   interpolationType: "percentile",
   interpolationRangeAbsolute: [0, 100],
   interpolationRangePercentile: [0, 100],
-  hideMasked: false
+  maskDisplay: "show"
 })
 
 // Create reactive state object
@@ -264,7 +264,11 @@ onMounted(() => {
     } else if (e.key === 'e' || e.key === 'E') {
       state.mode = 'view'
     } else if (e.key === 'h' || e.key === 'H') {
-      settings.value.hideMasked = !settings.value.hideMasked
+      // Cycle through mask display options: show -> hide -> transparent -> show
+      const displayOptions: Array<'show' | 'hide' | 'transparent'> = ['show', 'hide', 'transparent']
+      const currentIndex = displayOptions.indexOf(settings.value.maskDisplay)
+      const nextIndex = (currentIndex + 1) % displayOptions.length
+      settings.value.maskDisplay = displayOptions[nextIndex]
     }
   })
 })

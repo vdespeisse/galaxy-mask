@@ -109,11 +109,16 @@ const updateSettings = (updates: Partial<Settings>) => {
         <h4 class="text-sm font-medium text-slate-700 mb-3">Mask Display</h4>
 
         <div class="space-y-3">
-          <label class="flex items-center">
-            <input type="checkbox" :checked="modelValue.hideMasked"
-              @change="updateSettings({ hideMasked: ($event.target as HTMLInputElement).checked })" class="mr-2" />
-            <span class="text-sm">Hide masked cells (show as white instead of black)</span>
-          </label>
+          <div class="space-y-2">
+            <label class="block text-sm text-slate-600">Masked cells display:</label>
+            <select :value="modelValue.maskDisplay"
+              @change="updateSettings({ maskDisplay: ($event.target as HTMLSelectElement).value as 'show' | 'hide' | 'transparent' })"
+              class="w-full px-3 py-2 text-sm border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-300">
+              <option value="show">Show as black</option>
+              <option value="hide">Hide (show as white)</option>
+              <option value="transparent">Transparent (low opacity grey)</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
