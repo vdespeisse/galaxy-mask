@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, watch, ref } from 'vue'
 import * as d3 from 'd3'
-import { coordToKey, keyToCoord, arrayToSet, setToArray, areMasksEqual } from '../lib/mask'
+import { coordToKey, keyToCoord, areMasksEqual } from '../lib/mask'
+import { colorPresets } from '../lib/colors'
+import type { Settings } from '../types'
 
 interface State {
   transform: d3.ZoomTransform
@@ -13,6 +15,7 @@ interface Props {
   data: (number | null)[][]
   state: State
   mask?: Set<string>
+  settings: Settings
 }
 
 const props = defineProps<Props>()
@@ -71,19 +74,51 @@ watch(() => props.mask, (newMask) => {
 
 }, { immediate: true, deep: true })
 
-// Create color scale from blue (negative) to red (positive)
-const colorScale = computed(() => {
-  if (!props.data.length) return null
+// Watch for color scheme changes and update colors
+watch(() => [props.settings.colorScheme, props.settings.interpolationType, props.settings.interpolationRangeAbsolute, props.settings.interpolationRangePercentile], () => {
+  updateColors()
+})
 
-  const allValues = props.data.flat().filter(val => val !== null) as number[]
+// Function to get interpolation values based on settings
+function getInterpolationValues(data: (number | null)[][], settings: Settings): [number, number] | null {
+  if (!data.length) return null
+
+  const allValues = data.flat().filter(val => val !== null) as number[]
   if (allValues.length === 0) return null
 
-  const minVal = Math.min(...allValues)
-  const maxVal = Math.max(...allValues)
+  if (settings.interpolationType === 'absolute') {
+    return settings.interpolationRangeAbsolute
+  } else {
+    // Default to data min/max for percentile or any other type
+    const minVal = Math.min(...allValues)
+    const maxVal = Math.max(...allValues)
+    const range = maxVal - minVal
+    const [percentileMin, percentileMax] = settings.interpolationRangePercentile
+    const offsetMin = range * (percentileMin / 100)
+    const offsetMax = range * (1 - (percentileMax / 100))
+    return [minVal + offsetMin, maxVal - offsetMax]
+  }
+}
 
-  return d3.scaleLinear<string>()
-    .domain([minVal, 0, maxVal])
-    .range(['blue', 'yellow', 'red'])
+// Create color scale using colors from the selected color scheme
+const colorScale = computed(() => {
+  const interpolationValues = getInterpolationValues(props.data, props.settings)
+  if (!interpolationValues) return null
+
+  const [minVal, maxVal] = interpolationValues
+
+  // Get colors from the selected color scheme, fallback to coolwarm if not found
+  const colors = colorPresets[props.settings.colorScheme] || colorPresets.coolwarm
+
+  // Create interpolator function using the colors array
+  const interpolator = d3.interpolateRgbBasis(colors)
+
+  // Return a function that maps values to colors
+  return (value: number) => {
+    // Normalize value to [0, 1] range
+    const normalized = (value - minVal) / (maxVal - minVal)
+    return interpolator(normalized)
+  }
 })
 
 // Function to get the color of a square

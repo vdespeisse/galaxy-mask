@@ -7,7 +7,9 @@ import ZoomControl from './components/ZoomControl.vue'
 import HotkeyHelp from './components/HotkeyHelp.vue'
 import SvgIcon from './components/SvgIcon.vue'
 import ToolButton from './components/ToolButton.vue'
+import AdvancedPanel from './components/AdvancedPanel.vue'
 import { coordToKey, arrayToSet, setToArray } from './lib/mask'
+import type { Settings } from './types'
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const maskFileInputRef = ref<HTMLInputElement | null>(null)
@@ -17,6 +19,17 @@ const galaxyLeftFilename = ref<string>('')
 const galaxyRightFilename = ref<string>('')
 const error = ref<string>('')
 const mask = ref<Set<string>>(new Set())
+
+// Advanced panel state
+const isAdvancedPanelOpen = ref(false)
+
+// Settings state
+const settings = ref<Settings>({
+  colorScheme: "coolwarm",
+  interpolationType: "percentile",
+  interpolationRangeAbsolute: [0, 100],
+  interpolationRangePercentile: [0, 100]
+})
 
 // Create reactive state object
 const state = reactive({
@@ -299,12 +312,27 @@ onMounted(() => {
       <!-- Zoom Control -->
       <div class="flex items-center gap-2 flex-1 justify-end">
         <ZoomControl v-if="hasData" :zoom-percentage="zoomPercentage" @update:zoom-percentage="updateZoom" />
+        <button
+          class="px-3 py-2 bg-white text-slate-700 border border-slate-400 rounded-md text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-emerald-300 hover:border-emerald-300 hover:text-emerald-900 active:bg-emerald-300 active:border-emerald-300 active:text-emerald-900 flex items-center gap-2"
+          @click="isAdvancedPanelOpen = !isAdvancedPanelOpen">
+          <span>Advanced</span>
+          <SvgIcon name="menu" class="w-4 h-4" />
+        </button>
         <HotkeyHelp />
       </div>
 
       <input ref="fileInputRef" type="file" accept=".csv,text/csv" multiple class="hidden" @change="handleFileUpload" />
       <input ref="maskFileInputRef" type="file" accept=".csv,text/csv" class="hidden" @change="handleMaskFileUpload" />
     </div>
+
+    <!-- Advanced Panel -->
+    <Transition name="slide">
+      <div v-if="isAdvancedPanelOpen"
+        class="advanced-panel fixed top-0 right-0 w-72 h-full bg-slate-50 border-l border-slate-200 shadow-lg z-50"
+        :style="{ top: '63px' }">
+        <AdvancedPanel v-model="settings" />
+      </div>
+    </Transition>
 
     <!-- Main content area -->
     <div class="flex-1 overflow-hidden">
@@ -316,14 +344,14 @@ onMounted(() => {
             <div class="text-center py-1 bg-slate-100 border-b border-slate-200 text-xs text-slate-600">
               {{ galaxyLeftFilename || 'No file loaded' }}
             </div>
-            <Heatmap :data="galaxyLeft" :state="state" :mask="mask" class="flex-1 min-h-0"
+            <Heatmap :data="galaxyLeft" :state="state" :mask="mask" :settings="settings" class="flex-1 min-h-0"
               @update:transform="updateTransform" @update:mask="handleMaskUpdate" />
           </div>
           <div class="flex-1 min-h-0 flex flex-col">
             <div class="text-center py-1 bg-slate-100 border-b border-slate-200 text-xs text-slate-600">
               {{ galaxyRightFilename || 'No file loaded' }}
             </div>
-            <Heatmap :data="galaxyRight" :state="state" :mask="mask" class="flex-1 min-h-0"
+            <Heatmap :data="galaxyRight" :state="state" :mask="mask" :settings="settings" class="flex-1 min-h-0"
               @update:transform="updateTransform" @update:mask="handleMaskUpdate" />
           </div>
         </div>
@@ -332,4 +360,23 @@ onMounted(() => {
   </div>
 </template>
 
-<style scoped></style>
+<style scoped>
+/* Slide transition for advanced panel */
+.slide-enter-active,
+.slide-leave-active {
+  transition: transform 0.3s ease-in-out;
+}
+
+.slide-enter-from {
+  transform: translateX(100%);
+}
+
+.slide-leave-to {
+  transform: translateX(100%);
+}
+
+.slide-enter-to,
+.slide-leave-from {
+  transform: translateX(0);
+}
+</style>
