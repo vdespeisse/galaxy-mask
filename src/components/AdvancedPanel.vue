@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import * as d3 from 'd3'
 import { colorPresets } from '../lib/colors'
 import type { Settings } from '../types'
 
@@ -18,6 +20,31 @@ const emit = defineEmits<Emits>()
 const updateSettings = (updates: Partial<Settings>) => {
   emit('update:modelValue', { ...props.modelValue, ...updates })
 }
+
+// Computed property for color scale gradient
+const colorScaleGradient = computed(() => {
+  if (!props.modelValue.colorScheme || !colorPresets[props.modelValue.colorScheme]) {
+    return ''
+  }
+
+  const colors = colorPresets[props.modelValue.colorScheme]
+  if (colors.length <= 10) {
+    return ''
+  }
+
+  // Create interpolator function using the colors array
+  const interpolator = d3.interpolateRgbBasis(colors)
+
+  // Generate gradient stops
+  const stops = []
+  for (let i = 0; i <= 100; i++) {
+    const t = i / 100
+    const color = interpolator(t)
+    stops.push(`${color} ${i}%`)
+  }
+
+  return `linear-gradient(to right, ${stops.join(', ')})`
+})
 </script>
 
 <template>
@@ -38,12 +65,16 @@ const updateSettings = (updates: Partial<Settings>) => {
                 {{ preset }}
               </option>
             </select>
-
-            <!-- Color Preview -->
-            <div v-if="modelValue.colorScheme && colorPresets[modelValue.colorScheme]" class="mt-2">
-              <div class="flex gap-1">
-                <div v-for="color in colorPresets[modelValue.colorScheme]" :key="color"
-                  class="w-4 h-4 rounded border border-slate-300" :style="{ backgroundColor: color }" :title="color">
+            <!-- Color Scale Gauge for schemes with more than 10 colors -->
+            <div v-if="modelValue.colorScheme && colorPresets[modelValue.colorScheme]" class="mt-3">
+              <div class="text-xs text-slate-600 mb-2">Color Scale Preview:</div>
+              <div class="relative">
+                <div class="w-full h-6 rounded border border-slate-300 overflow-hidden">
+                  <div class="w-full h-full" :style="{ background: colorScaleGradient }"></div>
+                </div>
+                <div class="flex justify-between text-xs text-slate-500 mt-1">
+                  <span>Min</span>
+                  <span>Max</span>
                 </div>
               </div>
             </div>
@@ -123,20 +154,20 @@ const updateSettings = (updates: Partial<Settings>) => {
           </div>
         </div>
       </div>
-    </div>
-    <div>
-      <h4 class="text-sm font-medium text-slate-700 mb-3">Actions</h4>
+      <div>
+        <h4 class="text-sm font-medium text-slate-700 mb-3">Actions</h4>
 
-      <div class="space-y-3">
-        <button @click="$emit('clear:mask')"
-          class="w-full px-4 py-2 bg-red-100 text-red-700 border border-red-300 rounded-md text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-red-200 hover:border-red-400 active:bg-red-300">
-          Clear Mask
-        </button>
+        <div class="space-y-3">
+          <button @click="$emit('clear:mask')"
+            class="w-full px-4 py-2 bg-red-100 text-red-700 border border-red-300 rounded-md text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-red-200 hover:border-red-400 active:bg-red-300">
+            Clear Mask
+          </button>
 
-        <button @click="$emit('clear:files')"
-          class="w-full px-4 py-2 bg-red-100 text-red-700 border border-red-300 rounded-md text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-red-200 hover:border-red-400 active:bg-red-300">
-          Clear Files
-        </button>
+          <button @click="$emit('clear:files')"
+            class="w-full px-4 py-2 bg-red-100 text-red-700 border border-red-300 rounded-md text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-red-200 hover:border-red-400 active:bg-red-300">
+            Clear Files
+          </button>
+        </div>
       </div>
     </div>
   </div>
